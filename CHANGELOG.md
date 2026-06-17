@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/MagmaMoose/git-pull-request-dashboard/compare/v1.7.1...v1.8.0) (2026-06-17)
+
+
+### Features
+
+* add table view for pull requests, default over cards ([9066287](https://github.com/MagmaMoose/git-pull-request-dashboard/commit/906628753dfabb2b9acf6dfec90fea7c91309b3e))
+
 ## [1.7.1](https://github.com/MagmaMoose/git-pull-request-dashboard/compare/v1.7.0...v1.7.1) (2026-06-17)
 
 
