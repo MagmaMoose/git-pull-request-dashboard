@@ -1,3 +1,15 @@
+# [1.6.0](https://github.com/MagmaMoose/git-pull-request-dashboard/compare/v1.5.1...v1.6.0) (2026-06-17)
+
+
+### Bug Fixes
+
+* **k8s:** make APP_VERSION patch a JSON 6902 op, not a partial Deployment ([9ca09c9](https://github.com/MagmaMoose/git-pull-request-dashboard/commit/9ca09c9acdd10b24ae8093bf95227614020c2ff0))
+
+
+### Features
+
+* runtime version chip, OAuth auto-login, and session-unseal fix ([fa74389](https://github.com/MagmaMoose/git-pull-request-dashboard/commit/fa74389c04f778f9e01be9dfa7d327352f1b0695))
+
 ## [1.5.1](https://github.com/MagmaMoose/git-pull-request-dashboard/compare/v1.5.0...v1.5.1) (2026-06-17)
 
 
