@@ -3,9 +3,8 @@ import { ConfigContext } from "../context/ConfigContext";
 import { useQueries } from "@tanstack/react-query";
 import { PullRequest } from "../models/PullRequest";
 import Box from "@mui/material/Box";
-import Grid from "@mui/material/Grid2";
 
-import PullRequestCard from "../components/Cards/PullRequestCard";
+import { PullRequestList } from "../components/PullRequestList";
 import { Typography } from "@mui/material";
 import { useActiveRepositories } from "../hooks/useActiveRepositories";
 
@@ -81,19 +80,5 @@ export const MyPullRequests: React.FC = () => {
     );
   }
 
-  return (
-    <Grid container spacing={2}>
-      {data.map(
-        (pull) =>
-          pull && (
-            <Grid
-              key={`${pull.providerHost ?? "github.com"}:${pull.id}`}
-              size={{ xl: 6, xs: 12 }}
-            >
-              <PullRequestCard pr={pull as unknown as PullRequest} />
-            </Grid>
-          )
-      )}
-    </Grid>
-  );
+  return <PullRequestList pullRequests={data as unknown as PullRequest[]} />;
 };
