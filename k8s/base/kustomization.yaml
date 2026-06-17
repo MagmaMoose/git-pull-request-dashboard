@@ -4,6 +4,7 @@ resources:
   - deployment.yaml
   - service.yaml
   - externalsecret-oauth2.yaml
+  - externalsecret-github-oauth.yaml
   - oauth2-proxy.yaml
   # No Ingress: public .co traffic enters via the cloudflared tunnel -> the
   # oauth2-proxy Service (Google gate). See the infra repo's tunnels.tf.
