@@ -23,6 +23,7 @@ import {
   providerFromConfiguredEnvironment,
   providerFromHost,
 } from "./utils/githubProvider";
+import { migrateRepositorySettings } from "./utils/repositoryKeys";
 import {
   AuthSession,
   AuthenticatedUser,
@@ -45,6 +46,10 @@ function App() {
 
   const [repositorySettings, setRepositorySettings] = usePersistentState('REPOSITORY_CONFIG', {
     defaultValue: {} as Record<string, boolean>,
+    // Migrate legacy bare `owner/repo` keys to the host-scoped form on load so
+    // selections saved before multi-host support survive the upgrade.
+    deserialize: (raw) =>
+      migrateRepositorySettings(JSON.parse(raw) as Record<string, boolean>),
     validator: validators.repositorySettings,
     storageType: 'localStorage'
   });
