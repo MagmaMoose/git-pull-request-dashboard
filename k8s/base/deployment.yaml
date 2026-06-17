@@ -1,8 +1,13 @@
 ---
-# kics-scan disable=3d658f8b-d988-41a0-a841-40043121de1e
+# kics-scan disable=3d658f8b-d988-41a0-a841-40043121de1e,02323c00-cdc3-4fdc-a310-4f2b3e7a1660
 # Disables KICS "Secrets As Environment Variables" — the OAuth client creds
 # and session secret are read by server/index.mjs from process.env at boot,
 # and secretKeyRef is the recommended k8s pattern for injecting them.
+# Disables KICS "Container Running With Low UID" — the container runs as the
+# upstream node:22-alpine `node` user (uid 1000, matching `USER 1000:1000` in
+# the Dockerfile); runAsNonRoot is enforced via securityContext and the >=10000
+# floor would mean an unmapped UID with no homedir for no extra hardening. Same
+# rationale as the CKV_K8S_40 skip below.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,6 +50,8 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       # ghcr.io/magmamoose/* pull creds — the `automation` ns carries the

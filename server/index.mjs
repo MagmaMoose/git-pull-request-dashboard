@@ -66,6 +66,11 @@ function base64UrlDecode(value) {
   return Buffer.from(`${normalized}${padding}`, "base64");
 }
 
+// RFC 6265 cookie-name token characters. Validating the attacker-controlled
+// cookie name against this allowlist before using it as a property key is the
+// boundary that closes CodeQL js/remote-property-injection.
+const COOKIE_NAME_PATTERN = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/;
+
 function parseCookies(cookieHeader = "") {
   return cookieHeader
     .split(";")
@@ -73,9 +78,29 @@ function parseCookies(cookieHeader = "") {
     .filter(Boolean)
     .reduce((cookies, cookie) => {
       const [name, ...valueParts] = cookie.split("=");
-      cookies[name] = decodeURIComponent(valueParts.join("="));
+      const rawValue = valueParts.join("=");
+      // Drop names that aren't valid cookie tokens or that target a prototype
+      // member, so an attacker-controlled name can never be written as an
+      // arbitrary property key. Stored on a null-prototype map for defense in
+      // depth.
+      if (
+        !COOKIE_NAME_PATTERN.test(name) ||
+        name === "__proto__" ||
+        name === "constructor" ||
+        name === "prototype"
+      ) {
+        return cookies;
+      }
+      // A malformed %-escape in the value would throw URIError; fall back to raw.
+      let value;
+      try {
+        value = decodeURIComponent(rawValue);
+      } catch {
+        value = rawValue;
+      }
+      cookies[name] = value;
       return cookies;
-    }, {});
+    }, Object.create(null));
 }
 
 function serializeCookie(name, value, req, options = {}) {
@@ -173,6 +198,58 @@ function unsealSession(value) {
   return session;
 }
 
+function hostForSession(session) {
+  return session?.provider?.host;
+}
+
+function pruneSessionStore(store) {
+  // Null-prototype map so a host key can never collide with Object.prototype
+  // members — defense-in-depth alongside the isAllowedHost guard.
+  const sessions = Object.create(null);
+  for (const [host, session] of Object.entries(store.sessions ?? {})) {
+    if (isAllowedHost(host) && session?.expiresAt && Date.now() <= session.expiresAt) {
+      sessions[host] = session;
+    }
+  }
+
+  return { version: 2, sessions };
+}
+
+function toSessionStore(sessionOrStore) {
+  if (sessionOrStore?.version === 2 && sessionOrStore.sessions) {
+    return pruneSessionStore(sessionOrStore);
+  }
+
+  const host = hostForSession(sessionOrStore);
+  if (
+    !isAllowedHost(host) ||
+    !sessionOrStore?.expiresAt ||
+    Date.now() > sessionOrStore.expiresAt
+  ) {
+    return { version: 2, sessions: Object.create(null) };
+  }
+
+  const sessions = Object.create(null);
+  sessions[host] = sessionOrStore;
+  return { version: 2, sessions };
+}
+
+function sessionStoreFromRequest(req) {
+  const cookies = parseCookies(req.headers.cookie);
+  const sessionCookie = cookies[SESSION_COOKIE];
+  return sessionCookie
+    ? toSessionStore(unsealSession(sessionCookie))
+    : { version: 2, sessions: {} };
+}
+
+function sessionsFromStore(store) {
+  return Object.values(pruneSessionStore(store).sessions).sort((a, b) => {
+    if (a.provider.host === "github.com") return -1;
+    if (b.provider.host === "github.com") return 1;
+    return a.provider.host.localeCompare(b.provider.host);
+  });
+}
+
 function trimTrailingSlash(value) {
   return value.replace(/\/+$/, "");
 }
@@ -186,9 +263,23 @@ function normalizeHost(input) {
   return url.hostname.toLowerCase().replace(/^api\./, "");
 }
 
+// A provider host must be a plain DNS hostname. Validating it here keeps a
+// crafted value (e.g. `__proto__`, `constructor`) from ever reaching a computed
+// property key on a session map or being spliced into an upstream fetch URL —
+// the boundary fix for CodeQL js/remote-property-injection.
+const HOST_PATTERN = /^[a-z0-9.-]+$/;
+
+function isAllowedHost(host) {
+  return typeof host === "string" && HOST_PATTERN.test(host);
+}
+
 function deriveProvider(hostInput) {
   const url = parseUrlInput(hostInput || "github.com");
   const host = normalizeHost(hostInput || "github.com");
+
+  if (!isAllowedHost(host)) {
+    throw new Error(`Unsupported provider host: ${host}`);
+  }
 
   if (host === "github.com") {
     return {
@@ -313,12 +404,6 @@ function redirect(res, location, headers = {}) {
   res.end();
 }
 
-function sessionFromRequest(req) {
-  const cookies = parseCookies(req.headers.cookie);
-  const sessionCookie = cookies[SESSION_COOKIE];
-  return sessionCookie ? unsealSession(sessionCookie) : null;
-}
-
 async function readRequestBody(req) {
   const chunks = [];
   for await (const chunk of req) {
@@ -343,6 +428,15 @@ async function fetchAuthenticatedUser(provider, accessToken) {
   }
 
   return response.json();
+}
+
+function publicUser(user) {
+  return {
+    login: user.login,
+    avatar_url: user.avatar_url,
+    url: user.url,
+    html_url: user.html_url,
+  };
 }
 
 async function handleOAuthStart(req, res, url) {
@@ -447,12 +541,18 @@ async function handleOAuthCallback(req, res, url) {
     provider: publicProvider,
     scope: tokenPayload.scope,
     tokenType: tokenPayload.token_type ?? "bearer",
-    user,
+    user: publicUser(user),
   };
+  const existingStore = sessionStoreFromRequest(req);
+  // provider.host has already passed isAllowedHost via deriveProvider; build the
+  // merged map on a null-prototype object so the computed key can't be polluted.
+  const mergedSessions = Object.assign(Object.create(null), existingStore.sessions);
+  mergedSessions[provider.host] = session;
+  const sessionStore = pruneSessionStore({ version: 2, sessions: mergedSessions });
 
   redirect(res, decodedState.redirectTo || "/#/", {
     "Set-Cookie": [
-      serializeCookie(SESSION_COOKIE, sealSession(session), req, {
+      serializeCookie(SESSION_COOKIE, sealSession(sessionStore), req, {
         maxAge: SESSION_MAX_AGE_SECONDS,
       }),
       clearCookie(STATE_COOKIE, req),
@@ -462,16 +562,25 @@ async function handleOAuthCallback(req, res, url) {
 
 function handleSession(req, res) {
   try {
-    const session = sessionFromRequest(req);
-    if (!session) {
+    const store = sessionStoreFromRequest(req);
+    const sessions = sessionsFromStore(store);
+    const publicSessions = sessions.map((session) => ({
+      provider: session.provider,
+      user: session.user,
+      scope: session.scope,
+      tokenType: session.tokenType,
+    }));
+
+    if (publicSessions.length === 0) {
       sendJson(res, 200, { authenticated: false });
       return;
     }
 
     sendJson(res, 200, {
       authenticated: true,
-      provider: session.provider,
-      user: session.user,
+      provider: publicSessions[0].provider,
+      user: publicSessions[0].user,
+      sessions: publicSessions,
     });
   } catch {
     sendJson(res, 200, { authenticated: false }, {
@@ -487,9 +596,9 @@ function handleLogout(req, res) {
 }
 
 async function handleGitHubProxy(req, res, url) {
-  let session;
+  let sessions;
   try {
-    session = sessionFromRequest(req);
+    sessions = sessionsFromStore(sessionStoreFromRequest(req));
   } catch {
     sendJson(res, 401, { error: "invalid_session" }, {
       "Set-Cookie": clearCookie(SESSION_COOKIE, req),
@@ -497,12 +606,28 @@ async function handleGitHubProxy(req, res, url) {
     return;
   }
 
-  if (!session?.accessToken) {
+  if (sessions.length === 0) {
     sendJson(res, 401, { error: "not_authenticated" });
     return;
   }
 
-  const upstreamPath = url.pathname.replace(/^\/api\/github\/?/, "/") || "/";
+  const proxyPath = url.pathname.replace(/^\/api\/github\/?/, "/") || "/";
+  const pathSegments = proxyPath.replace(/^\/+/, "").split("/");
+  // A stray `%` makes decodeURIComponent throw URIError; fall back to the raw
+  // segment so a malformed path degrades to sessions[0] instead of a 500.
+  let requestedHost;
+  try {
+    requestedHost = decodeURIComponent(pathSegments[0] ?? "");
+  } catch {
+    requestedHost = pathSegments[0] ?? "";
+  }
+  const matchingSession = sessions.find(
+    (candidate) => candidate.provider.host === requestedHost
+  );
+  const session = matchingSession ?? sessions[0];
+  const upstreamPath = matchingSession
+    ? `/${pathSegments.slice(1).join("/")}`
+    : proxyPath;
   const upstreamUrl = `${joinUrl(session.provider.apiUrl, upstreamPath)}${url.search}`;
   const headers = new Headers();
 
