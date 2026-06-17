@@ -1,3 +1,16 @@
+# [1.7.0](https://github.com/MagmaMoose/git-pull-request-dashboard/compare/v1.6.1...v1.7.0) (2026-06-17)
+
+
+### Bug Fixes
+
+* **k8s:** correctly suppress KICS + Checkov secret false positives ([3072984](https://github.com/MagmaMoose/git-pull-request-dashboard/commit/3072984130e282393268bc3d005b47f68d211317))
+* **k8s:** suppress KICS false-positive secret findings on ExternalSecret keys ([db1a841](https://github.com/MagmaMoose/git-pull-request-dashboard/commit/db1a841b1b48268790100e4aae53cd908f7f2024))
+
+
+### Features
+
+* **k8s:** provision github-oauth secret from OCI Vault via ExternalSecret ([40fe6a6](https://github.com/MagmaMoose/git-pull-request-dashboard/commit/40fe6a63a38623df978aab85cab9361d44b4bd66))
+
 ## [1.6.1](https://github.com/MagmaMoose/git-pull-request-dashboard/compare/v1.6.0...v1.6.1) (2026-06-17)
 
 
