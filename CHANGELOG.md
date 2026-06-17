@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/MagmaMoose/git-pull-request-dashboard/compare/v1.6.0...v1.6.1) (2026-06-17)
+
+
+### Bug Fixes
+
+* **k8s:** derive APP_VERSION from the image tag via kustomize replacements ([c367022](https://github.com/MagmaMoose/git-pull-request-dashboard/commit/c36702217081766d5770a115604091f8f67ad5aa))
+
 # [1.6.0](https://github.com/MagmaMoose/git-pull-request-dashboard/compare/v1.5.1...v1.6.0) (2026-06-17)
 
 
