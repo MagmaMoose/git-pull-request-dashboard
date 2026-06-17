@@ -690,10 +690,23 @@ async function handleGitHubProxy(req, res, url) {
     body,
   });
 
+  // GitHub returns pagination URLs in the Link header as absolute upstream URLs
+  // (e.g. https://api.<host>/…?page=2). A client that follows rel="next" would
+  // hit the upstream directly, bypassing this proxy and its Authorization
+  // injection — a 401. Rewrite the upstream API base back to this proxy's base
+  // so pagination stays authenticated.
+  const proxyBase = matchingSession
+    ? `${publicOrigin(req)}/api/github/${encodeURIComponent(session.provider.host)}`
+    : `${publicOrigin(req)}/api/github`;
+
   upstreamResponse.headers.forEach((value, name) => {
     const lower = name.toLowerCase();
     if (hopByHopHeaders.has(lower)) return;
     if (lower === "set-cookie" || lower === "set-cookie2") return;
+    if (lower === "link") {
+      res.setHeader(name, value.split(session.provider.apiUrl).join(proxyBase));
+      return;
+    }
     res.setHeader(name, value);
   });
   res.writeHead(upstreamResponse.status);

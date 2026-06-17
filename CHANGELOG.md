@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/MagmaMoose/git-pull-request-dashboard/compare/v1.7.0...v1.7.1) (2026-06-17)
+
+
+### Bug Fixes
+
+* **server:** rewrite proxied Link header so pagination stays authenticated ([59f5361](https://github.com/MagmaMoose/git-pull-request-dashboard/commit/59f53610bacbaddf501887defdff40124119c1dc))
+
 # [1.7.0](https://github.com/MagmaMoose/git-pull-request-dashboard/compare/v1.6.1...v1.7.0) (2026-06-17)
 
 
