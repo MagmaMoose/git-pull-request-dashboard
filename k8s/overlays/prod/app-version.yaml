@@ -1,19 +1,13 @@
-# Injects the running version into the container so the SPA can display it at
-# runtime (GET /api/version). Flux's image automation rewrites the value below
-# in lockstep with the image tag in kustomization.yaml — both carry the same
-# `:tag` $imagepolicy setter — so the displayed version always matches the
-# promoted image without rebuilding the bundle. Kept as a standalone patch file
-# (not an inline patch in kustomization.yaml) so the setter sees a real YAML
-# scalar node to update.
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: git-pull-request-dashboard
-spec:
-  template:
-    spec:
-      containers:
-        - name: git-pull-request-dashboard
-          env:
-            - name: APP_VERSION
-              value: v1.5.1 # {"$imagepolicy": "flux-system:git-pull-request-dashboard:tag"}
+# Adds APP_VERSION to the dashboard container so the SPA can report the running
+# version at runtime (GET /api/version). Written as a JSON 6902 patch (a list of
+# ops, not a `kind: Deployment` manifest) so KICS/code-scanning does not treat it
+# as a standalone Deployment missing security context, probes, resources, etc. —
+# all of which live on the complete base manifest (k8s/base/deployment.yaml).
+# Flux's image automation rewrites the value below in lockstep with the image tag
+# in kustomization.yaml: both carry the same `:tag` $imagepolicy setter, and the
+# value here is a real YAML scalar node the setter can rewrite.
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: APP_VERSION
+    value: v1.5.1 # {"$imagepolicy": "flux-system:git-pull-request-dashboard:tag"}
