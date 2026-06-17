@@ -3,6 +3,10 @@ kind: Kustomization
 namespace: automation
 resources:
   - ../../base
+patches:
+  # Adds the Flux-managed APP_VERSION env so the app can report the running
+  # version at runtime (see app-version.yaml).
+  - path: app-version.yaml
 images:
   - name: ghcr.io/magmamoose/git-pull-request-dashboard
     newTag: v1.5.1 # {"$imagepolicy": "flux-system:git-pull-request-dashboard:tag"}

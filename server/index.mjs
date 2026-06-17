@@ -191,6 +191,16 @@ function unsealSession(value) {
   ]);
 
   const session = JSON.parse(decrypted.toString("utf8"));
+
+  // v2 payloads are a multi-session store keyed by host; per-session expiry is
+  // enforced downstream by pruneSessionStore. Only legacy single-session
+  // payloads carry a top-level expiresAt to validate here — applying that check
+  // to a v2 store would always throw (the store has no top-level expiresAt) and
+  // wipe the session on the first read after login.
+  if (session?.version === 2) {
+    return session;
+  }
+
   if (!session.expiresAt || Date.now() > session.expiresAt) {
     throw new Error("Session expired");
   }
@@ -595,6 +605,35 @@ function handleLogout(req, res) {
   });
 }
 
+// The running version is taken from the container's APP_VERSION env rather than
+// baked into the SPA bundle: the release pipeline promotes the CI image to the
+// version tag without rebuilding (see .github/workflows/release.yml), so a
+// build-time constant would always lag a release behind. APP_VERSION is bumped
+// in lockstep with the image tag by Flux (see k8s/overlays/prod).
+function handleVersion(req, res) {
+  sendJson(res, 200, { version: process.env.APP_VERSION ?? null }, {
+    "Cache-Control": "no-store",
+  });
+}
+
+// Lists the provider hosts that actually have an OAuth app configured, so the
+// SPA can auto-initiate sign-in for each one (github.com plus any GHE tenant)
+// instead of waiting for a manual button click.
+function handleAuthProviders(req, res) {
+  const providers = [];
+  for (const [host, app] of configuredOauthApps.entries()) {
+    if (app?.clientId && app?.clientSecret) {
+      providers.push(host);
+    }
+  }
+  providers.sort((a, b) => {
+    if (a === "github.com") return -1;
+    if (b === "github.com") return 1;
+    return a.localeCompare(b);
+  });
+  sendJson(res, 200, { providers }, { "Cache-Control": "no-store" });
+}
+
 async function handleGitHubProxy(req, res, url) {
   let sessions;
   try {
@@ -714,6 +753,16 @@ async function serveStatic(req, res, url) {
 async function handleRequest(req, res) {
   try {
     const url = new URL(req.url ?? "/", publicOrigin(req));
+
+    if (req.method === "GET" && url.pathname === "/api/version") {
+      handleVersion(req, res);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/auth/providers") {
+      handleAuthProviders(req, res);
+      return;
+    }
 
     if (req.method === "GET" && url.pathname === "/api/auth/github/start") {
       await handleOAuthStart(req, res, url);

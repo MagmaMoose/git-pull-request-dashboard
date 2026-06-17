@@ -31,6 +31,54 @@ import {
 } from "./models/Auth";
 
 const patLoginEnabled = import.meta.env.VITE_ENABLE_PAT_LOGIN !== "false";
+// Auto-login is on by default; set VITE_DISABLE_AUTO_LOGIN=true to fall back to
+// the manual "Log in with GitHub" button only.
+const autoLoginDisabled = import.meta.env.VITE_DISABLE_AUTO_LOGIN === "true";
+
+// Per-tab guards (sessionStorage) that keep the auto-login chain terminating:
+// each provider is attempted at most once, and an explicit logout suppresses it.
+const AUTO_LOGIN_ATTEMPTED_KEY = "gprd_autologin_attempted";
+const LOGGED_OUT_KEY = "gprd_logged_out";
+
+// Guards against launching more than one redirect per page load (e.g. React
+// StrictMode double-invoking the effect in dev). Resets naturally on reload.
+let autoLoginRedirecting = false;
+
+function getAttemptedAutoLogins(): string[] {
+  try {
+    const raw = sessionStorage.getItem(AUTO_LOGIN_ATTEMPTED_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((host): host is string => typeof host === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function markAutoLoginAttempted(host: string): void {
+  try {
+    const attempted = new Set(getAttemptedAutoLogins());
+    attempted.add(host);
+    sessionStorage.setItem(
+      AUTO_LOGIN_ATTEMPTED_KEY,
+      JSON.stringify([...attempted])
+    );
+  } catch {
+    // sessionStorage unavailable (private mode) — auto-login just can't be
+    // deduped, which at worst costs one extra redirect.
+  }
+}
+
+// HashRouter keeps the route + query in location.hash, e.g.
+// "#/login?auth_error=access_denied" — the OAuth callback redirects there on
+// failure or denial.
+function readAuthError(): string | null {
+  const hash = window.location.hash;
+  const queryIndex = hash.indexOf("?");
+  if (queryIndex === -1) return null;
+  return new URLSearchParams(hash.slice(queryIndex + 1)).get("auth_error");
+}
 
 function App() {
   const [authSessions, setAuthSessions] = React.useState<AuthSession[]>([]);
@@ -175,6 +223,55 @@ function App() {
   React.useEffect(() => {
     let cancelled = false;
 
+    // Redirect to start OAuth for the next configured provider the user isn't
+    // signed into yet (github.com, then any GHE tenant). Each provider is tried
+    // at most once per tab, and the chain is skipped after an explicit logout or
+    // a failed sign-in, so it always terminates and never loops. Returns true
+    // when a redirect was initiated (the page is then unloading).
+    async function maybeAutoLogin(
+      authenticatedHosts: Set<string>,
+      hasPatSession: boolean
+    ): Promise<boolean> {
+      if (autoLoginDisabled || hasPatSession) return false;
+      try {
+        if (sessionStorage.getItem(LOGGED_OUT_KEY) === "1") return false;
+      } catch {
+        // ignore unavailable sessionStorage
+      }
+      if (readAuthError()) return false;
+
+      let providers: string[] = [];
+      try {
+        const response = await fetch("/api/auth/providers", {
+          credentials: "same-origin",
+        });
+        if (!response.ok) return false;
+        const data = await response.json();
+        if (Array.isArray(data?.providers)) {
+          providers = data.providers.filter(
+            (host: unknown): host is string => typeof host === "string"
+          );
+        }
+      } catch {
+        // No OAuth backend (static/dev deploy) — nothing to auto-login.
+        return false;
+      }
+
+      const attempted = getAttemptedAutoLogins();
+      const nextProvider = providers.find(
+        (host) => !authenticatedHosts.has(host) && !attempted.includes(host)
+      );
+      if (!nextProvider) return false;
+      if (autoLoginRedirecting) return true;
+
+      autoLoginRedirecting = true;
+      markAutoLoginAttempted(nextProvider);
+      const loginUrl = new URL("/api/auth/github/start", window.location.origin);
+      loginUrl.searchParams.set("provider", nextProvider);
+      window.location.assign(loginUrl.toString());
+      return true;
+    }
+
     async function hydrateAuth() {
       try {
         const response = await fetch("/api/auth/session", {
@@ -203,6 +300,16 @@ function App() {
             if (!cancelled) {
               setAuthenticatedSessions(sessions);
               TokenManager.clearToken();
+            }
+
+            // Signed into at least one provider via OAuth — chain the remaining
+            // configured ones (e.g. add GHE after github.com).
+            const authenticatedHosts = new Set(
+              sessions.map((session) => session.provider.host)
+            );
+            if (await maybeAutoLogin(authenticatedHosts, false)) return;
+
+            if (!cancelled) {
               setAuthLoading(false);
             }
             return;
@@ -217,6 +324,10 @@ function App() {
         setAuthenticatedSessions(storedSessions);
       }
 
+      // No OAuth session. Unless the user is on a manual PAT session, kick off
+      // the sign-in chain for the configured providers.
+      if (await maybeAutoLogin(new Set(), storedSessions.length > 0)) return;
+
       if (!cancelled) {
         setAuthLoading(false);
       }
@@ -228,6 +339,18 @@ function App() {
       cancelled = true;
     };
   }, [setAuthenticatedSessions]);
+
+  // Surface OAuth failures/denials (the callback lands on /#/login?auth_error=…)
+  // and let the auto-login guard fall through to the manual sign-in UI.
+  React.useEffect(() => {
+    const authError = readAuthError();
+    if (authError) {
+      showToast(
+        `GitHub sign-in failed (${authError}). You can try again from the header.`,
+        "error"
+      );
+    }
+  }, [showToast]);
 
   const logOut = React.useCallback(() => {
     if (authSessions.some((session) => session.method === "oauth")) {
@@ -241,6 +364,14 @@ function App() {
 
     TokenManager.clearToken();
     setAuthSessions([]);
+    // Suppress the auto-login chain until this tab is closed, so logout can't
+    // immediately bounce the user back into GitHub on the next load.
+    try {
+      sessionStorage.setItem(LOGGED_OUT_KEY, "1");
+      sessionStorage.removeItem(AUTO_LOGIN_ATTEMPTED_KEY);
+    } catch {
+      // ignore unavailable sessionStorage
+    }
     navigate("/login");
     showToast("Logged out successfully", "info");
   }, [authSessions, navigate, showToast]);

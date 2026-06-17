@@ -27,7 +27,7 @@ import { RepositoryIcon } from "./icons/RepositoryIcon";
 import { IssuesIcon } from "./icons/IssuesIcon";
 import { ThemeSwitch } from "./ThemeSwitch";
 import { AuthSession } from "../models/Auth";
-import { APP_VERSION } from "../version";
+import { useAppVersion } from "../version";
 
 export type AuthHeaderProps = {
   sessions: AuthSession[];
@@ -48,6 +48,7 @@ export const AuthHeader: React.FC<AuthHeaderProps> = ({
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const appVersion = useAppVersion();
 
   const [checked, setChecked] = React.useState(darkMode);
   const [menuAnchor, setMenuAnchor] = React.useState<HTMLElement | null>(null);
@@ -125,7 +126,7 @@ export const AuthHeader: React.FC<AuthHeaderProps> = ({
         }}
       >
         <ThemeSwitch checked={checked} onChange={handleThemeSwitch} />
-        <Chip label={APP_VERSION} size="small" variant="outlined" />
+        <Chip label={appVersion} size="small" variant="outlined" />
         {sessions.map((session) => (
           <Chip
             key={session.provider.host}

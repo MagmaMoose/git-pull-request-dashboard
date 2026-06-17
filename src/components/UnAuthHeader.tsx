@@ -10,7 +10,7 @@ import {
   Tooltip,
 } from "@mui/material";
 import React from "react";
-import { APP_VERSION } from "../version";
+import { useAppVersion } from "../version";
 
 export type UnAuthHeaderProps = {
   loading?: boolean;
@@ -30,6 +30,7 @@ export const UnAuthHeader: React.FC<UnAuthHeaderProps> = ({
 
   const providerHost = providerType === "github" ? "github.com" : enterpriseHost;
   const enterpriseHostMissing = providerType === "enterprise" && !enterpriseHost.trim();
+  const appVersion = useAppVersion();
 
   return (
     <Box
@@ -42,7 +43,7 @@ export const UnAuthHeader: React.FC<UnAuthHeaderProps> = ({
         flexWrap: "wrap",
       }}
     >
-      <Chip label={APP_VERSION} size="small" variant="outlined" />
+      <Chip label={appVersion} size="small" variant="outlined" />
       <ToggleButtonGroup
         exclusive
         size="small"
