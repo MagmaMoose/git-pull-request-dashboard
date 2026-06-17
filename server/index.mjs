@@ -178,11 +178,14 @@ function hostForSession(session) {
 }
 
 function pruneSessionStore(store) {
-  const sessions = Object.fromEntries(
-    Object.entries(store.sessions ?? {}).filter(
-      ([, session]) => session?.expiresAt && Date.now() <= session.expiresAt
-    )
-  );
+  // Null-prototype map so a host key can never collide with Object.prototype
+  // members — defense-in-depth alongside the isAllowedHost guard.
+  const sessions = Object.create(null);
+  for (const [host, session] of Object.entries(store.sessions ?? {})) {
+    if (isAllowedHost(host) && session?.expiresAt && Date.now() <= session.expiresAt) {
+      sessions[host] = session;
+    }
+  }
 
   return { version: 2, sessions };
 }
@@ -193,16 +196,17 @@ function toSessionStore(sessionOrStore) {
   }
 
   const host = hostForSession(sessionOrStore);
-  if (!host || !sessionOrStore?.expiresAt || Date.now() > sessionOrStore.expiresAt) {
-    return { version: 2, sessions: {} };
+  if (
+    !isAllowedHost(host) ||
+    !sessionOrStore?.expiresAt ||
+    Date.now() > sessionOrStore.expiresAt
+  ) {
+    return { version: 2, sessions: Object.create(null) };
   }
 
-  return {
-    version: 2,
-    sessions: {
-      [host]: sessionOrStore,
-    },
-  };
+  const sessions = Object.create(null);
+  sessions[host] = sessionOrStore;
+  return { version: 2, sessions };
 }
 
 function sessionStoreFromRequest(req) {
@@ -234,9 +238,23 @@ function normalizeHost(input) {
   return url.hostname.toLowerCase().replace(/^api\./, "");
 }
 
+// A provider host must be a plain DNS hostname. Validating it here keeps a
+// crafted value (e.g. `__proto__`, `constructor`) from ever reaching a computed
+// property key on a session map or being spliced into an upstream fetch URL —
+// the boundary fix for CodeQL js/remote-property-injection.
+const HOST_PATTERN = /^[a-z0-9.-]+$/;
+
+function isAllowedHost(host) {
+  return typeof host === "string" && HOST_PATTERN.test(host);
+}
+
 function deriveProvider(hostInput) {
   const url = parseUrlInput(hostInput || "github.com");
   const host = normalizeHost(hostInput || "github.com");
+
+  if (!isAllowedHost(host)) {
+    throw new Error(`Unsupported provider host: ${host}`);
+  }
 
   if (host === "github.com") {
     return {
@@ -501,13 +519,11 @@ async function handleOAuthCallback(req, res, url) {
     user: publicUser(user),
   };
   const existingStore = sessionStoreFromRequest(req);
-  const sessionStore = pruneSessionStore({
-    version: 2,
-    sessions: {
-      ...existingStore.sessions,
-      [provider.host]: session,
-    },
-  });
+  // provider.host has already passed isAllowedHost via deriveProvider; build the
+  // merged map on a null-prototype object so the computed key can't be polluted.
+  const mergedSessions = Object.assign(Object.create(null), existingStore.sessions);
+  mergedSessions[provider.host] = session;
+  const sessionStore = pruneSessionStore({ version: 2, sessions: mergedSessions });
 
   redirect(res, decodedState.redirectTo || "/#/", {
     "Set-Cookie": [
@@ -572,7 +588,14 @@ async function handleGitHubProxy(req, res, url) {
 
   const proxyPath = url.pathname.replace(/^\/api\/github\/?/, "/") || "/";
   const pathSegments = proxyPath.replace(/^\/+/, "").split("/");
-  const requestedHost = decodeURIComponent(pathSegments[0] ?? "");
+  // A stray `%` makes decodeURIComponent throw URIError; fall back to the raw
+  // segment so a malformed path degrades to sessions[0] instead of a 500.
+  let requestedHost;
+  try {
+    requestedHost = decodeURIComponent(pathSegments[0] ?? "");
+  } catch {
+    requestedHost = pathSegments[0] ?? "";
+  }
   const matchingSession = sessions.find(
     (candidate) => candidate.provider.host === requestedHost
   );
