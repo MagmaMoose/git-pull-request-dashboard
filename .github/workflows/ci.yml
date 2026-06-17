@@ -48,7 +48,7 @@ jobs:
         if: steps.filter.outputs.image != 'true'
         run: echo "PR touches only files outside the image build context; skipping pr-<N> build."
 
-      - uses: magmamoose/diatreme@d0706e1f21c7dd5fe8e1067ca7b1a5c042d56c1d # v1.30.0
+      - uses: magmamoose/diatreme@cf12012f5602afbbe186ec83e37fe4440dfb8704 # v1.30.1
         if: steps.filter.outputs.image == 'true'
         with:
           mode: ci
