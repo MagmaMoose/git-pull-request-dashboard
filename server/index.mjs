@@ -66,6 +66,11 @@ function base64UrlDecode(value) {
   return Buffer.from(`${normalized}${padding}`, "base64");
 }
 
+// RFC 6265 cookie-name token characters. Validating the attacker-controlled
+// cookie name against this allowlist before using it as a property key is the
+// boundary that closes CodeQL js/remote-property-injection.
+const COOKIE_NAME_PATTERN = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/;
+
 function parseCookies(cookieHeader = "") {
   return cookieHeader
     .split(";")
@@ -74,10 +79,19 @@ function parseCookies(cookieHeader = "") {
     .reduce((cookies, cookie) => {
       const [name, ...valueParts] = cookie.split("=");
       const rawValue = valueParts.join("=");
-      // A cookie name is attacker-controlled, so write it onto a null-prototype
-      // map — it can never collide with Object.prototype (CodeQL
-      // js/remote-property-injection). A malformed %-escape in the value would
-      // otherwise throw URIError, so fall back to the raw value.
+      // Drop names that aren't valid cookie tokens or that target a prototype
+      // member, so an attacker-controlled name can never be written as an
+      // arbitrary property key. Stored on a null-prototype map for defense in
+      // depth.
+      if (
+        !COOKIE_NAME_PATTERN.test(name) ||
+        name === "__proto__" ||
+        name === "constructor" ||
+        name === "prototype"
+      ) {
+        return cookies;
+      }
+      // A malformed %-escape in the value would throw URIError; fall back to raw.
       let value;
       try {
         value = decodeURIComponent(rawValue);
