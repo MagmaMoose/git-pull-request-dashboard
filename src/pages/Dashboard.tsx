@@ -1,7 +1,7 @@
 import React from "react";
 import { ConfigContext } from "../context/ConfigContext";
 import { PullRequest } from "../models/PullRequest";
-import PullRequestCard from "../components/Cards/PullRequestCard";
+import { PullRequestList } from "../components/PullRequestList";
 import {
   Box,
   Button,
@@ -15,7 +15,6 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import Grid from "@mui/material/Grid2";
 import LandingPage from "./LandingPage";
 import { InputFilter } from "../components/InputFilter";
 import { useQueries } from "@tanstack/react-query";
@@ -171,19 +170,7 @@ export const Dashboard: React.FC = () => {
               />
             </Box>
           </Box>
-          <Grid container spacing={2}>
-            {displayedPulls.map(
-              (pull) =>
-                pull && (
-                  <Grid
-                    key={`${pull.providerHost ?? "github.com"}:${pull.id}`}
-                    size={{ xl: 6, xs: 12 }}
-                  >
-                    <PullRequestCard pr={pull as unknown as PullRequest} />
-                  </Grid>
-                )
-            )}
-          </Grid>
+          <PullRequestList pullRequests={displayedPulls as PullRequest[]} />
         </>
       )}
     </>
