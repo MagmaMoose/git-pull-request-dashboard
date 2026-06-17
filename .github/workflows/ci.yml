@@ -33,6 +33,7 @@ jobs:
           filters: |
             image:
               - 'src/**'
+              - 'server/**'
               - 'public/**'
               - 'index.html'
               - 'package.json'
