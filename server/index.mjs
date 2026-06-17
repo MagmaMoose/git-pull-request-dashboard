@@ -73,9 +73,20 @@ function parseCookies(cookieHeader = "") {
     .filter(Boolean)
     .reduce((cookies, cookie) => {
       const [name, ...valueParts] = cookie.split("=");
-      cookies[name] = decodeURIComponent(valueParts.join("="));
+      const rawValue = valueParts.join("=");
+      // A cookie name is attacker-controlled, so write it onto a null-prototype
+      // map — it can never collide with Object.prototype (CodeQL
+      // js/remote-property-injection). A malformed %-escape in the value would
+      // otherwise throw URIError, so fall back to the raw value.
+      let value;
+      try {
+        value = decodeURIComponent(rawValue);
+      } catch {
+        value = rawValue;
+      }
+      cookies[name] = value;
       return cookies;
-    }, {});
+    }, Object.create(null));
 }
 
 function serializeCookie(name, value, req, options = {}) {
