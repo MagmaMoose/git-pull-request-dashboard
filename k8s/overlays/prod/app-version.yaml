@@ -1,13 +1,16 @@
-# Adds APP_VERSION to the dashboard container so the SPA can report the running
-# version at runtime (GET /api/version). Written as a JSON 6902 patch (a list of
-# ops, not a `kind: Deployment` manifest) so KICS/code-scanning does not treat it
-# as a standalone Deployment missing security context, probes, resources, etc. —
-# all of which live on the complete base manifest (k8s/base/deployment.yaml).
-# Flux's image automation rewrites the value below in lockstep with the image tag
-# in kustomization.yaml: both carry the same `:tag` $imagepolicy setter, and the
-# value here is a real YAML scalar node the setter can rewrite.
+# Adds an APP_VERSION env to the dashboard container so the SPA can report the
+# running version at runtime (GET /api/version). The value below is a placeholder:
+# kustomization.yaml's `replacements` overwrites it at build time with the image
+# tag. We derive it from the image rather than carrying a second $imagepolicy
+# marker here, because Flux's image automation only rewrites the marker on the
+# `images:` field — a marker buried in a JSON 6902 patch value is left stale (it
+# was: the chip showed v1.5.1 while the running image was v1.6.0).
+#
+# JSON 6902 patch (a list of ops, not a `kind: Deployment`) so KICS/code-scanning
+# doesn't scan it as a standalone Deployment missing security context, probes, or
+# resources — all of which live on the complete base manifest (k8s/base/deployment.yaml).
 - op: add
   path: /spec/template/spec/containers/0/env/-
   value:
     name: APP_VERSION
-    value: v1.5.1 # {"$imagepolicy": "flux-system:git-pull-request-dashboard:tag"}
+    value: 0.0.0-unset
