@@ -11,7 +11,7 @@ patches:
       name: git-pull-request-dashboard
 images:
   - name: ghcr.io/magmamoose/git-pull-request-dashboard
-    newTag: v1.6.0 # {"$imagepolicy": "flux-system:git-pull-request-dashboard:tag"}
+    newTag: v1.7.0 # {"$imagepolicy": "flux-system:git-pull-request-dashboard:tag"}
 # Copy the (Flux-bumped) image tag into the APP_VERSION env added by
 # app-version.yaml, so the version the SPA reports always matches the deployed
 # image. Flux only updates the images $imagepolicy marker above, so we derive
