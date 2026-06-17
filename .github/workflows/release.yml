@@ -5,10 +5,28 @@ name: Release
 # CHANGELOG.md + a GitHub Release, then promotes the pr-<N> image to the
 # version tag (no rebuild). Flux's ImagePolicy in the infra repo selects the
 # new vX.Y.Z tag and bumps k8s/overlays/prod.
+#
+# Manual release (Actions ▸ Release ▸ Run workflow):
+#   semantic-release-npm only cuts a version when there are feat/fix/perf
+#   commits since the last tag — that's why an empty run logs "no relevant
+#   changes". To force a release anyway, dispatch with `version-override`
+#   set to an explicit version (e.g. v1.2.3). Single environment: prod.
 on:
   push:
     branches: [main]
     paths-ignore: ['**.md', '.gitignore', 'LICENSE', 'CHANGELOG.md']
+  workflow_dispatch:
+    inputs:
+      version-override:
+        description: 'Explicit version e.g. v1.2.3. Leave blank to auto-compute from commits; required to force a release when there are no feat/fix/perf commits.'
+        required: false
+        default: ''
+
+# Serialize releases per ref so two pushes to main can't race semantic-release
+# tagging / image retagging. Never cancel a release mid-flight.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -21,13 +39,14 @@ jobs:
       packages: write
       id-token: write
     steps:
-      - uses: magmamoose/diatreme@d0706e1f21c7dd5fe8e1067ca7b1a5c042d56c1d # v1.30.0
+      - uses: magmamoose/diatreme@cf12012f5602afbbe186ec83e37fe4440dfb8704 # v1.30.1
         with:
           mode: release
           # Node/JS project — use semantic-release v24 (not the python default).
           versioning-tool: semantic-release-npm
           # Single environment: only `prod` exists.
           environment: prod
+          version-override: ${{ github.event_name == 'workflow_dispatch' && inputs.version-override || '' }}
           environments: '["prod"]'
           prerelease-identifiers: '{}'
           image_name: git-pull-request-dashboard
