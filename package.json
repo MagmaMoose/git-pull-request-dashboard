@@ -45,6 +45,7 @@
   "scripts": {
     "dev": "vite",
     "dev:oauth": "npm run build && NODE_ENV=development node server/index.mjs",
+    "dev:mock": "npm run build && node scripts/dev-mock-oauth.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
