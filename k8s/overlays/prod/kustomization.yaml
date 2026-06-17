@@ -11,4 +11,4 @@ patches:
       name: git-pull-request-dashboard
 images:
   - name: ghcr.io/magmamoose/git-pull-request-dashboard
-    newTag: v1.5.1 # {"$imagepolicy": "flux-system:git-pull-request-dashboard:tag"}
+    newTag: v1.6.0 # {"$imagepolicy": "flux-system:git-pull-request-dashboard:tag"}
