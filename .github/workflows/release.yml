@@ -1,53 +1,75 @@
+# Chargate/KICS suppression (reviewed false positive, not a vulnerability):
+#   baee238e... Passwords And Secrets - Generic Token misfires on the required
+#   `id-token: write` GitHub OIDC permission key below — no secret is present.
+# kics-scan disable=baee238e-1921-4801-9c3f-79ae1d7b2cbc
 name: Release
 
-# Diatreme TBD — mono-environment (solo). On push to main: semantic-release
-# (npm) computes the next version from conventional commits, tags it, updates
-# CHANGELOG.md + a GitHub Release, then promotes the pr-<N> image to the
-# version tag (no rebuild). Flux's ImagePolicy in the infra repo selects the
-# new vX.Y.Z tag and bumps k8s/overlays/prod.
+# Diatreme release workflow (one image-aware template for the whole org).
 #
-# Manual release (Actions ▸ Release ▸ Run workflow):
-#   semantic-release-npm only cuts a version when there are feat/fix/perf
-#   commits since the last tag — that's why an empty run logs "no relevant
-#   changes". To force a release anyway, dispatch with `version-override`
-#   set to an explicit version (e.g. v1.2.3). Single environment: prod.
+# Detects a container build (docker-bake.hcl / Dockerfile):
+#   - pull_request: image repos run `mode: ci` -> BUILD + push a pr-<N> image to
+#     GHCR, so the build is verified BEFORE merge. Non-image repos no-op (the
+#     required `diatreme` check passes trivially).
+#   - push to the default branch: `mode: release` -> version + GitHub Release;
+#     image repos also promote the image.
+#
+# versioning-tool defaults to gitversion (language-agnostic). Per-repo overrides:
+#   - Python: versioning-tool: semantic-release-python (+ a pyproject config).
+#   - Node:   versioning-tool: semantic-release-npm.
+#   - Non-`main` default branch (e.g. master): set on.push.branches to match.
+#
+# All actions are SHA-pinned (Chargate's pre-commit hook enforces this); the
+# trailing `# vX.Y.Z` comment tracks the tag each pinned SHA corresponds to.
+
 on:
+  pull_request:
   push:
     branches: [main]
-    paths-ignore: ['**.md', '.gitignore', 'LICENSE', 'CHANGELOG.md']
+    paths-ignore:
+      - '**/*.md'
+      - docs/**
+      - mkdocs.yml
+      - LICENSE
+      - .gitignore
   workflow_dispatch:
-    inputs:
-      version-override:
-        description: 'Explicit version e.g. v1.2.3. Leave blank to auto-compute from commits; required to force a release when there are no feat/fix/perf commits.'
-        required: false
-        default: ''
 
-# Serialize releases per ref so two pushes to main can't race semantic-release
-# tagging / image retagging. Never cancel a release mid-flight.
+permissions:
+  contents: write     # version bump + tag on release
+  id-token: write     # OIDC for the Diatreme public-app token broker
+  packages: write     # push the PR/release container image to GHCR
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  contents: read
-
 jobs:
-  release:
+  diatreme:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
     steps:
-      - uses: magmamoose/diatreme@cf12012f5602afbbe186ec83e37fe4440dfb8704 # v1.30.1
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: detect
+        shell: bash
+        # image_name is set only when the repo builds a container image; Diatreme
+        # gates all image steps on image_name != '', so non-image repos no-op.
+        run: |
+          if [ -f docker-bake.hcl ] || [ -f Dockerfile ]; then
+            echo "image_name=${{ github.event.repository.name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "image_name=" >> "$GITHUB_OUTPUT"
+          fi
+      # PR: verify the image builds (image repos only).
+      - if: github.event_name == 'pull_request' && steps.detect.outputs.image_name != ''
+        uses: magmamoose/diatreme@f31adec7d62907cc81b9b880cd776e24fcdcbaf1 # v2.0.0
+        with:
+          mode: ci
+          image_name: ${{ steps.detect.outputs.image_name }}
+      # Default-branch push (or manual dispatch): version + release.
+      - if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: magmamoose/diatreme@f31adec7d62907cc81b9b880cd776e24fcdcbaf1 # v2.0.0
         with:
           mode: release
-          # Node/JS project — use semantic-release v24 (not the python default).
-          versioning-tool: semantic-release-npm
-          # Single environment: only `prod` exists.
+          versioning-tool: gitversion
           environment: prod
-          version-override: ${{ github.event_name == 'workflow_dispatch' && inputs.version-override || '' }}
           environments: '["prod"]'
           prerelease-identifiers: '{}'
-          image_name: git-pull-request-dashboard
-          platforms: linux/amd64,linux/arm64
+          image_name: ${{ steps.detect.outputs.image_name }}
